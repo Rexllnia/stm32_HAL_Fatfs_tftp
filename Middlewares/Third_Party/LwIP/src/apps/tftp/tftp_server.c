@@ -78,15 +78,7 @@ enum tftp_error {
 };
 
 #include <string.h>
-typedef struct
-{
-    uint8_t     isOpenOK;
-    uint8_t     type;   //0:GCode 1:??GCode 2:??
-    uint8_t     write;
-    char        name[64];
-}TFTP_Handler;
-char fname[64]="";
-extern TFTP_Handler    tftp_Handler;
+char fname[64]="";//用于存文件名
 struct tftp_state {
   const struct tftp_context *ctx;
   void *handle;
@@ -119,9 +111,9 @@ close_handle(void)
   sys_untimeout(tftp_tmr, NULL);
 
   if (tftp_state.handle) {
+		/* USER CODE BEGIN TFTP_CLOSE */
     //什么都不做
-		// f_close(&file);
-//    tftp_state.ctx->close(tftp_state.handle);
+		/* USER CODE BEGIN TFTP_CLOSE */
     tftp_state.handle = NULL;
     LWIP_DEBUGF(TFTP_DEBUG | LWIP_DBG_STATE, ("tftp: closing\n"));
   }
@@ -201,9 +193,15 @@ send_data(void)
   payload = (u16_t *) tftp_state.last_data->payload;
   payload[0] = PP_HTONS(TFTP_DATA);
   payload[1] = lwip_htons(tftp_state.blknum);
-	f_read(&file, (uint8_t*)&payload[2], TFTP_MAX_PAYLOAD_SIZE, &Br);
-	ret = Br;
-//  ret = tftp_state.ctx->read(tftp_state.handle, &payload[2], TFTP_MAX_PAYLOAD_SIZE);
+	/* USER CODE BEGIN TFTP_READ */
+	while(f_open(&file, fname, FA_OPEN_EXISTING|FA_READ));
+
+	while(f_read(&file,payload+2,TFTP_MAX_PAYLOAD_SIZE,&Br));
+	printf("%s\r\n",(char*)(payload+2));
+	while(f_close(&file));
+	ret = Br;//返回读取字节数用于之后的发送操作
+	/* USER CODE END TFTP_READ */
+
   if (ret < 0) {
     send_error(&tftp_state.addr, tftp_state.port, TFTP_ERROR_ACCESS_VIOLATION, "Error occured while reading the file.");
     close_handle();
@@ -222,19 +220,16 @@ recv(void *arg, struct udp_pcb *upcb, struct pbuf *p, const ip_addr_t *addr, u16
 
   LWIP_UNUSED_ARG(arg);
   LWIP_UNUSED_ARG(upcb);
-printf("%s%d",__func__,__LINE__);
+
   if (((tftp_state.port != 0) && (port != tftp_state.port)) ||
       (!ip_addr_isany_val(tftp_state.addr) && !ip_addr_cmp(&tftp_state.addr, addr))) {
     printf( "Only one connection at a time is supported");
     pbuf_free(p);
     return;
   }
-printf("%s%d",__func__,__LINE__);
   opcode = sbuf[0];
-
   tftp_state.last_pkt = tftp_state.timer;
   tftp_state.retries = 0;
-	
   switch (opcode) {
     case PP_HTONS(TFTP_RRQ): /* fall through */
     case PP_HTONS(TFTP_WRQ): {
@@ -266,15 +261,11 @@ printf("%s%d",__func__,__LINE__);
         break;
       }
       pbuf_copy_partial(p, mode, mode_end_offset - filename_end_offset, filename_end_offset + 1);
-			printf("%s\n",filename);//打印接收到的文件名
-			res=f_open(&file,filename, FA_CREATE_ALWAYS|FA_WRITE|FA_READ);
+			printf("%s\r\n",filename);//打印文件名
 			strcpy(fname,filename);
-			f_close(&file);
-			tftp_Handler.write  = (opcode == PP_HTONS(TFTP_WRQ));
-      tftp_Handler.type   = 0;
-			tftp_Handler.isOpenOK = res;
-			tftp_state.handle=&tftp_Handler; 
-//      tftp_state.handle = tftp_state.ctx->open(filename, mode, opcode == PP_HTONS(TFTP_WRQ));
+			res=1;//res=1成功
+			tftp_state.handle=&res; //
+
 
       tftp_state.blknum = 1;
       if (!tftp_state.handle) {
@@ -316,22 +307,15 @@ printf("%s%d",__func__,__LINE__);
       blknum = lwip_ntohs(sbuf[1]);
       if (blknum == tftp_state.blknum) {
         pbuf_remove_header(p, TFTP_HEADER_LENGTH);
-			printf("%s%d\n",__func__,__LINE__);
- f_open(&file, fname, FA_OPEN_ALWAYS|FA_WRITE);
-//				printf("%s%d\n",p->payload,p->len);
-ret = f_write(&file, p->payload, p->len+1, &Bw);
-				f_close(&file);
+			
 
-				printf("%s%d\n",__func__,__LINE__);
-	char rbuf[20]="";
-	f_open(&file, fname, FA_OPEN_ALWAYS|FA_READ);
+				/* USER CODE BEGIN TFTP_WRITE */
+				f_open(&file, fname, FA_OPEN_ALWAYS|FA_WRITE);
+				ret = f_write(&file, p->payload, p->len+1, &Bw);//返回 0 成功 
+				while(f_close(&file));
+				/* USER CODE END TFTP_WRITE */
 
-	f_read(&file,rbuf,19,&Br);
-	printf("%s",rbuf);
-	f_close(&file);
-
-//        ret = tftp_state.ctx->write(tftp_state.handle, p);
-        if (ret < 0) {
+        if (ret != 0) {
           printf( "error writing file");
           close_handle();
         } else {
@@ -425,7 +409,7 @@ tftp_tmr(void *arg)
  * @param ctx TFTP callback struct
  */
 err_t
-tftp_init(const struct tftp_context *ctx)
+tftp_init()
 {
   err_t ret;
 
@@ -443,7 +427,7 @@ tftp_init(const struct tftp_context *ctx)
 
   tftp_state.handle    = NULL;
   tftp_state.port      = 0;
-  tftp_state.ctx       = ctx;
+//  tftp_state.ctx       = ctx;
   tftp_state.timer     = 0;
   tftp_state.last_data = NULL;
   tftp_state.upcb      = pcb;
