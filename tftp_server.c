@@ -79,6 +79,7 @@ enum tftp_error {
 
 #include <string.h>
 char fname[64]="";//用于存文件名
+long file_size=0,pos=0;
 struct tftp_state {
   const struct tftp_context *ctx;
   void *handle;
@@ -112,7 +113,7 @@ close_handle(void)
 
   if (tftp_state.handle) {
 		/* USER CODE BEGIN TFTP_CLOSE */
-    //什么都不做
+    pos=0;//把发送位置归零
 		/* USER CODE BEGIN TFTP_CLOSE */
     tftp_state.handle = NULL;
     LWIP_DEBUGF(TFTP_DEBUG | LWIP_DBG_STATE, ("tftp: closing\n"));
@@ -162,11 +163,12 @@ static void
 resend_data(void)
 {
   struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, tftp_state.last_data->len, PBUF_RAM);
-  if (p == NULL) {
+  if (p == NULL) {pos=0;
     return;
   }
 
   if (pbuf_copy(p, tftp_state.last_data) != ERR_OK) {
+		pos=0;
     pbuf_free(p);
     return;
   }
@@ -187,6 +189,7 @@ send_data(void)
 
   tftp_state.last_data = pbuf_alloc(PBUF_TRANSPORT, TFTP_HEADER_LENGTH + TFTP_MAX_PAYLOAD_SIZE, PBUF_RAM);
   if (tftp_state.last_data == NULL) {
+		pos=0;
     return;
   }
 
@@ -195,21 +198,24 @@ send_data(void)
   payload[1] = lwip_htons(tftp_state.blknum);
 	/* USER CODE BEGIN TFTP_READ */
 	while(f_open(&file, fname, FA_OPEN_EXISTING|FA_READ));
-
-	while(f_read(&file,payload+2,TFTP_MAX_PAYLOAD_SIZE,&Br));
-	printf("%s\r\n",(char*)(payload+2));
+	file_size=f_size(&file);
+	f_lseek(&file,pos);
+	while(f_read(&file,&payload[2],TFTP_MAX_PAYLOAD_SIZE,&Br));
+	pos=f_tell(&file);
+	printf("%d\n",pos);
 	while(f_close(&file));
 	ret = Br;//返回读取字节数用于之后的发送操作
 	/* USER CODE END TFTP_READ */
-
   if (ret < 0) {
     send_error(&tftp_state.addr, tftp_state.port, TFTP_ERROR_ACCESS_VIOLATION, "Error occured while reading the file.");
     close_handle();
+		
     return;
   }
 
   pbuf_realloc(tftp_state.last_data, (u16_t)(TFTP_HEADER_LENGTH + ret));
   resend_data();
+
 }
 
 static void
@@ -311,7 +317,9 @@ recv(void *arg, struct udp_pcb *upcb, struct pbuf *p, const ip_addr_t *addr, u16
 
 				/* USER CODE BEGIN TFTP_WRITE */
 				f_open(&file, fname, FA_OPEN_ALWAYS|FA_WRITE);
-				ret = f_write(&file, p->payload, p->len+1, &Bw);//返回 0 成功 
+				f_lseek(&file, f_size(&file));
+				printf("%d\r\n",f_size(&file));
+				while(ret = f_write(&file, p->payload, p->len, &Bw));//返回 0 成功 
 				while(f_close(&file));
 				/* USER CODE END TFTP_WRITE */
 
