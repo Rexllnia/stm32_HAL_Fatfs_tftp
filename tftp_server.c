@@ -268,6 +268,7 @@ recv(void *arg, struct udp_pcb *upcb, struct pbuf *p, const ip_addr_t *addr, u16
       }
       pbuf_copy_partial(p, mode, mode_end_offset - filename_end_offset, filename_end_offset + 1);
 			printf("%s\r\n",filename);//打印文件名
+			f_unlink(filename);
 			strcpy(fname,filename);
 			res=1;//res=1成功
 			tftp_state.handle=&res; //
